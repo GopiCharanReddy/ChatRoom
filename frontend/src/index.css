@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* src/index.css */
+
+/* This sets the default font for your entire app to Roboto */
+
+body {
+  font-family: "Quicksand", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 500;
+  font-style: normal;
+}
