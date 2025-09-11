@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Header from './Header'
+import { useWebSocket } from './WebSocketContext';
 
 type Message = {
   text: string,
@@ -7,37 +8,30 @@ type Message = {
 }
 
 const Chat = () => {
-  const [messages, setMessages] = useState<Message[]>([{ text: "Never gonna give you up.", sender: "them" }]);
-  const socketRef = useRef<WebSocket | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [messages, setMessages] = useState<Message[]>([]);
+  const { socket } = useWebSocket()
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const socket = new WebSocket("ws://localhost:8080");
-    socketRef.current = socket;
-    socket.onmessage = (event) => {
-      setMessages(message => [...message, { text: event.data, sender: "them" }])
+    if (socket) {
+      socket.onmessage = (event) => {
+        const newMessage = event.data;
+        console.log("Received:", newMessage)
+        setMessages(prevMessages => [...prevMessages, newMessage])
+      }
     }
-    socket.onopen = () => {
-      socket.send(JSON.stringify({
-        type: 'join',
-        payload: {
-          roomId: 'red'
-        }
-      }))
-    }
-    return () => {
-      socket.close();
-    }
-  }, [])
+  })
+
   const handleClick = () => {
     const message = inputRef.current?.value;
     if (!message) return;
     setMessages(prevMessage => [...prevMessage, { text: message, sender: "me" }]);
-    if (socketRef.current && message) {
-      socketRef.current.send(JSON.stringify({
+    if (socket) {
+      socket.send(JSON.stringify({
         type: 'chat',
         payload: {
           message,
+          roomId: localStorage.getItem("roomID")
         }
       }));
     }
