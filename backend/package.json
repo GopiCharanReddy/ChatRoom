@@ -8,7 +8,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/figlet": "^1.7.0"
+    "@types/figlet": "^1.7.0",
+    "@types/nanoid": "^3.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -17,6 +18,8 @@
     "figlet": "^1.8.2",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.19.0",
-    "mongoose": "^8.18.1"
+    "mongoose": "^8.18.1",
+    "nanoid": "^5.1.5",
+    "shortid": "^2.2.17"
   }
 }
