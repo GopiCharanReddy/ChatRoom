@@ -9,14 +9,12 @@ type CreateRoomProps = {
 const CreateRoom = ({ onRoomCreated }: CreateRoomProps) => {
   const nameRef = useRef<HTMLInputElement>(null);
   const roomIDRef = useRef<HTMLInputElement>(null)
-  const [newRoomId, setNewRoomId] = useState<string>('')
   const { socket, isConnected, lastMessage } = useWebSocket();
 
   useEffect(() => {
     if(!lastMessage) return;
     if (lastMessage && lastMessage.type === 'roomCreated') {
       const newRoomId = lastMessage.payload.roomId
-      setNewRoomId(newRoomId)
       const initialCount = lastMessage.payload.userCount;
       onRoomCreated(newRoomId, initialCount);
     }
@@ -64,11 +62,6 @@ const CreateRoom = ({ onRoomCreated }: CreateRoomProps) => {
           <input ref={roomIDRef} type="text" placeholder='Enter Room Code' className='text-neutral-100 p-2 w-full border focus:border-neutral-100 outline-none border-neutral-800 rounded-md' />
           <button onClick={handleJoin} className='cursor-pointer bg-white hover:bg-neutral-200 w-[30%] text-black rounded-lg font-semibold'>Join Room</button>
         </div>
-        {newRoomId &&
-          <div className="bg-neutral-900 h-30 rounded-lg flex flex-col justify-center items-center">
-            <div className="text-neutral-500">Share this room id with you friend</div>
-            <h1 className="text-2xl mt-2">{`Room ID: ${newRoomId}`} </h1>
-          </div>}
       </div>
       <div>
       </div>
