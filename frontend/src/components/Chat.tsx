@@ -8,9 +8,9 @@ type Message = {
 }
 type ChatProps = {
   roomId: string | null,
-  userCount: number;
+  initialUserCount: number;
 }
-const Chat = ({ roomId, userCount: initialUserCount }: ChatProps) => {
+const Chat = ({ roomId, initialUserCount }: ChatProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const { socket, clientId, lastMessage } = useWebSocket()
   const inputRef = useRef<HTMLInputElement>(null);
