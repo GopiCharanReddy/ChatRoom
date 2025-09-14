@@ -1,209 +1,129 @@
-import type { ServerWebSocket, WebSocket } from "bun";
-import connectDb from "./database/indexdb";
-import mongoose from "mongoose";
+import { MongoClient, Db, Collection } from "mongodb";
+import type { ServerWebSocket } from "bun";
 import crypto from "crypto";
 import { nanoid } from "nanoid";
-connectDb();
 
-const userSchema = new mongoose.Schema(
-  {
-    socketId: {
-      type: String,
-      required: true,
-    },
-    name: {
-      type: String,
-      required: true,
-    },
-  },
-  { _id: false }
-);
+if (!process.env.MONGODB_URL) {
+  throw new Error("MONGODB_URL is not defined");
+}
+if (!process.env.PORT) {
+  throw new Error("PORT is not defined");
+}
+if (!process.env.FRONTEND_URL) {
+  throw new Error("FRONTEND_URL is not defined");
+}
 
-const roomSchema = new mongoose.Schema(
-  {
-    _id: {
-      type: String,
-      required: true,
-    },
-    users: {
-      type: [userSchema],
-    },
-  },
-  { timestamps: true }
-);
-const Room = mongoose.model("Room", roomSchema);
+const client = new MongoClient(process.env.MONGODB_URL!);
+await client.connect();
+const db: Db = client.db("chatroom");
+const rooms: Collection<RoomDocument> = db.collection("rooms");
 
-type SocketData  = {
-  id: string;
+interface User {
+  socketId: string;
   name: string;
-  roomId: string;
+}
+
+interface RoomDocument {
+  _id: string;
+  users: User[];
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+type SocketData = {
+  id: string;
+  name?: string;
+  roomId?: string;
 };
-const server = Bun.serve<SocketData>({
-  port: process.env.PORT,
+
+const server = Bun.serve({
+  port: Number(process.env.PORT),
   fetch(req, server) {
-    if (server.upgrade(req, { data: { id: crypto.randomUUID()}})) {
-      return;
+    if (server.upgrade(req, { data: { id: crypto.randomUUID() } })) return;
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": process.env.FRONTEND_URL!,
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
     }
     return new Response("Upgrade failed.", { status: 500 });
   },
   websocket: {
-    open(ws) {
-      ws.data.id  = crypto.randomUUID();
-      console.log(ws.data.id);
-      console.log(`Client ${ws.data.id} connected.`);
-      ws.send(
-        JSON.stringify({
-          type: "welcome",
-          id: ws.data.id,
-        })
-      );
+    open(ws: ServerWebSocket<SocketData>) {
+      ws.send(JSON.stringify({ type: "welcome", id: ws.data.id }));
     },
     async message(ws, message) {
-      const parsedMessage = JSON.parse(message.toString());
-      const { type, payload } = parsedMessage;
-      console.log(parsedMessage);
-      if (parsedMessage.type == "create") {
-        const newRoomId = nanoid(6);
-        const user = {
-          socketId: ws.data.id,
-          name: payload.name,
-        };
-        ws.data.name = user.name;
-        ws.data.roomId = newRoomId;
-        if (!payload) {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: "Name is required to create a room.",
-            })
-          );
+      let parsed;
+      try {
+        parsed = JSON.parse(message.toString());
+      } catch (error) {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid message format" }));
+        return;
+      }
+      const { type, payload } = parsed;
+
+      if (type === "create") {
+        if (!payload?.name) {
+          ws.send(JSON.stringify({ type: "error", message: "Name is required" }));
           return;
         }
-        try {
-          const newRoom = new Room({ _id: newRoomId, users: [user] });
-          await newRoom.save();
-          ws.subscribe(newRoomId);
-          ws.send(
-            JSON.stringify({
-              type: "roomCreated",
-              payload: {
-                roomId: newRoomId,
-                userCount: 1
-              },
-            })
-          );
-        } catch (error) {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: "Failed to create Room.",
-              error,
-            })
-          );
-        }
+        const newRoomId = nanoid(6);
+        const user: User = { socketId: ws.data.id, name: payload.name };
+        ws.data.name = user.name;
+        ws.data.roomId = newRoomId;
+        await rooms.insertOne({ _id: newRoomId, users: [user], createdAt: new Date(), updatedAt: new Date() });
+        ws.subscribe(newRoomId);
+        ws.send(JSON.stringify({ type: "roomCreated", payload: { roomId: newRoomId, userCount: 1 } }));
       }
-      if (parsedMessage.type == "join") {
-        try {
-          const { roomId, name } = payload;
-          const room = await Room.findById(payload.roomId);
-          console.log(room);
-          if (!room) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Room not found.",
-              })
-            );
-            return;
-          }
-          if (room.users?.length >= 2) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Room is full.",
-              })
-            );
-            return;
-          }
-          const newUser = {
-            socketId: ws.data.id,
-            name: payload.name,
-          };
-          room.users.push(newUser);
-          await room.save();
-          ws.data.name = newUser.name
-          ws.data.roomId = roomId
-          ws.subscribe(roomId);
-          server.publish(
-            roomId,
-            JSON.stringify({
-              type: "joined",
-              message: `${name} has joined the room.`, 
-              senderId: ws.data.id,
-              payload: {
-                roomId: roomId,
-                userCount: 2,
-              }
-            })
-          );
-        } catch (error) {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: "Failed to join room.",
-            })
-          );
+
+      if (type === "join") {
+        const { roomId, name } = payload;
+        const room = await rooms.findOne({ _id: roomId });
+        if (!room) {
+          ws.send(JSON.stringify({ type: "error", message: "Room not found." }));
+          return;
         }
+        if (room.users.length >= 2) {
+          ws.send(JSON.stringify({ type: "error", message: "Room is full." }));
+          return;
+        }
+        const newUser: User = { socketId: ws.data.id, name };
+        room.users.push(newUser);
+        ws.data.name = newUser.name;
+        ws.data.roomId = roomId;
+        await rooms.updateOne({ _id: roomId }, { $set: { users: room.users, updatedAt: new Date() } });
+        ws.subscribe(roomId);
+        server.publish(roomId, JSON.stringify({ type: "joined", message: `${name} has joined the room.`, senderId: ws.data.id, payload: { roomId, userCount: room.users.length } }));
       }
-      if (parsedMessage.type == "chat") {
+
+      if (type === "chat") {
         const { roomId, message } = payload;
-        const room = await Room.findById(roomId);
+        const room = await rooms.findOne({ _id: roomId });
         if (!room) return;
-        const sender = room.users.find((user) => user.socketId === ws.data.id);
+        const sender = room.users.find((u: User) => u.socketId === ws.data.id);
         if (!sender) return;
-        server.publish(
-          roomId,
-          JSON.stringify({
-            type: "chatMessage",
-            text: message,
-            senderName: sender.name,
-            senderId: ws.data.id,
-          })
-        );
+        server.publish(roomId, JSON.stringify({ type: "chatMessage", text: message, senderName: sender.name, senderId: ws.data.id }));
       }
     },
     async close(ws) {
-      console.log(`Client ${ws.data.id} disconnected.`);
-      try {
-        const room = await Room.findOne({
-          "users.socketId": ws.data.id,
-        });
-        if (!room) return;
-        const leavingUser = room.users.find(
-          (user) => user.socketId == ws.data.id
-        );
-        if (leavingUser) {
-          server.publish(
-            room._id,
-            JSON.stringify({
-              type: "userLeft",
-              senderId: ws.data.id,
-              message: `${leavingUser.name} has left the room.`,
-              userCount: room.users.length - 1,
-            })
-          );
-          room.users.pull(leavingUser)
-        }
-        if (room.users.length === 0) {
-          await Room.findByIdAndDelete(room._id);
-          console.log(`Room ${room._id} was empty and has been deleted.`);
-        } else {
-          await room.save();
-        }
-      } catch (error) {
-        console.error("Error during close: ", error);
+      const room = await rooms.findOne({ "users.socketId": ws.data.id });
+      if (!room) return;
+      const leavingUser = room.users.find((u:User) => u.socketId === ws.data.id);
+      if (leavingUser) {
+        server.publish(room._id, JSON.stringify({ type: "userLeft", senderId: ws.data.id, message: `${leavingUser.name} has left the room.`, userCount: room.users.length - 1 }));
+        room.users = room.users.filter((u: User) => u.socketId !== ws.data.id);
+      }
+      if (room.users.length === 0) {
+        await rooms.deleteOne({ _id: room._id });
+      } else {
+        await rooms.updateOne({ _id: room._id }, { $set: { users: room.users, updatedAt: new Date() } });
       }
     },
   },
 });
-console.log(`Bun server is listening  on port:${server.port}`)
+
+console.log(`Bun server listening on port: ${server.port}`);
