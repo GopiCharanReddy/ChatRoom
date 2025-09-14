@@ -1,17 +1,26 @@
-import React, { useEffect, useState } from 'react'
+import { useState } from 'react'
 import CreateRoom from './components/CreateRoom'
 import Chat from './components/Chat'
 import { WebSocketProvider } from './components/WebSocketContext'
 
 const App = () => {
-  const [view, setView] = useState<'create' | 'chat'>('create')  
+  const [view, setView] = useState<'create' | 'chat'>('create')
+  const [roomId, setRoomId] = useState<string | null>(null)
+  const [userCount, setUserCount] = useState(0);
+  const handleRoomCreated = (newRoomId: string, initialCount?: number) => {
+    setRoomId(newRoomId)
+    setView('chat')
+    if(initialCount !== undefined)
+      setUserCount(initialCount);
+  }
+
   return (
     <div className='min-h-screen flex justify-center items-center bg-neutral-950 text-white'>
-     <WebSocketProvider>
+      <WebSocketProvider>
         <div>
-          {view === 'chat'? <Chat /> : <CreateRoom onRoomCreated={() => setView('chat')} />}
+          {view === 'chat' ? <Chat roomId={roomId} initialUserCount={userCount} /> : <CreateRoom onRoomCreated={handleRoomCreated} />}
         </div>
-     </WebSocketProvider>
+      </WebSocketProvider>
     </div>
   )
 }
