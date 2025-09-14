@@ -15,9 +15,9 @@ const App = () => {
   }
 
   return (
-    <div className='min-h-screen flex justify-center items-center bg-neutral-950 text-white'>
+    <div className='min-h-screen flex justify-center items-center bg-neutral-950 text-white p-4 sm:p-6 lg:p-8'>
       <WebSocketProvider>
-        <div>
+        <div className='w-full max-w-md sm:max-w-lg lg:max-w-2xl xl:max-w-4xl'>
           {view === 'chat' ? <Chat roomId={roomId} initialUserCount={userCount} /> : <CreateRoom onRoomCreated={handleRoomCreated} />}
         </div>
       </WebSocketProvider>
