@@ -2,6 +2,7 @@ import type { ServerWebSocket, WebSocket } from "bun";
 import connectDb from "./database/indexdb";
 import mongoose from "mongoose";
 import crypto from "crypto";
+import { nanoid } from "nanoid";
 connectDb();
 
 const userSchema = new mongoose.Schema(
@@ -32,34 +33,43 @@ const roomSchema = new mongoose.Schema(
 );
 const Room = mongoose.model("Room", roomSchema);
 
-type UserWebSocket = ServerWebSocket<unknown> & { id: string };
-
-Bun.serve({
+type SocketData  = {
+  id: string;
+  name: string;
+  roomId: string;
+};
+const server = Bun.serve<SocketData>({
   port: 8080,
   fetch(req, server) {
-    if (server.upgrade(req)) {
+    if (server.upgrade(req, { data: { id: crypto.randomUUID()}})) {
       return;
     }
     return new Response("Upgrade failed.", { status: 500 });
   },
   websocket: {
-    open(ws: UserWebSocket) {
-      ws.id = crypto.randomUUID();
-      console.log(ws.id);
-      console.log(`Client ${ws.id} connected.`);
+    open(ws) {
+      ws.data.id  = crypto.randomUUID();
+      console.log(ws.data.id);
+      console.log(`Client ${ws.data.id} connected.`);
       ws.send(
         JSON.stringify({
           type: "welcome",
-          id: ws.id,
+          id: ws.data.id,
         })
       );
     },
-    async message(ws: UserWebSocket, message) {
+    async message(ws, message) {
       const parsedMessage = JSON.parse(message.toString());
       const { type, payload } = parsedMessage;
       console.log(parsedMessage);
       if (parsedMessage.type == "create") {
-        const newRoomId = crypto.randomUUID();
+        const newRoomId = nanoid(6);
+        const user = {
+          socketId: ws.data.id,
+          name: payload.name,
+        };
+        ws.data.name = user.name;
+        ws.data.roomId = newRoomId;
         if (!payload) {
           ws.send(
             JSON.stringify({
@@ -69,19 +79,16 @@ Bun.serve({
           );
           return;
         }
-        const user = {
-          socketId: ws.id,
-          name: payload.name,
-        };
         try {
           const newRoom = new Room({ _id: newRoomId, users: [user] });
           await newRoom.save();
           ws.subscribe(newRoomId);
           ws.send(
             JSON.stringify({
-              type: "room_created",
+              type: "roomCreated",
               payload: {
                 roomId: newRoomId,
+                userCount: 1
               },
             })
           );
@@ -119,25 +126,24 @@ Bun.serve({
             return;
           }
           const newUser = {
-            socketId: ws.id,
+            socketId: ws.data.id,
             name: payload.name,
           };
           room.users.push(newUser);
           await room.save();
+          ws.data.name = newUser.name
+          ws.data.roomId = roomId
           ws.subscribe(roomId);
-          ws.publish(
+          server.publish(
             roomId,
             JSON.stringify({
               type: "joined",
-              message: `${name} has joined the room.`,
-            })
-          );
-          ws.send(
-            JSON.stringify({
-              type: "joinSuccess",
+              message: `${name} has joined the room.`, 
+              senderId: ws.data.id,
               payload: {
-                roomId,
-              },
+                roomId: roomId,
+                userCount: 2,
+              }
             })
           );
         } catch (error) {
@@ -153,35 +159,37 @@ Bun.serve({
         const { roomId, message } = payload;
         const room = await Room.findById(roomId);
         if (!room) return;
-        const sender = room.users.find((user) => user.socketId === ws.id);
+        const sender = room.users.find((user) => user.socketId === ws.data.id);
         if (!sender) return;
-        ws.publish(
+        server.publish(
           roomId,
           JSON.stringify({
-            type: "chat",
+            type: "chatMessage",
             text: message,
             senderName: sender.name,
-            senderId: ws.id,
+            senderId: ws.data.id,
           })
         );
       }
     },
-    async close(ws: UserWebSocket) {
-      console.log(`Client ${ws.id} disconnected.`);
+    async close(ws) {
+      console.log(`Client ${ws.data.id} disconnected.`);
       try {
         const room = await Room.findOne({
-          "users.socketId": ws.id,
+          "users.socketId": ws.data.id,
         });
         if (!room) return;
         const leavingUser = room.users.find(
-          (user) => user.socketId == ws.id
+          (user) => user.socketId == ws.data.id
         );
         if (leavingUser) {
-          ws.publish(
+          server.publish(
             room._id,
             JSON.stringify({
               type: "userLeft",
+              senderId: ws.data.id,
               message: `${leavingUser.name} has left the room.`,
+              userCount: room.users.length - 1,
             })
           );
           room.users.pull(leavingUser)
@@ -198,3 +206,4 @@ Bun.serve({
     },
   },
 });
+console.log(`Bun server is listening  on port:${server.port}`)
