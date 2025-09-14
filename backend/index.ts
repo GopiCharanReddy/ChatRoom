@@ -39,7 +39,7 @@ type SocketData  = {
   roomId: string;
 };
 const server = Bun.serve<SocketData>({
-  port: 8080,
+  port: process.env.PORT,
   fetch(req, server) {
     if (server.upgrade(req, { data: { id: crypto.randomUUID()}})) {
       return;
