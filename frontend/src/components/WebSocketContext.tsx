@@ -25,7 +25,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
   const [lastMessage, setLastMessage] = useState<any | null>(null)
   
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8080");
+    const ws = new WebSocket(import.meta.env.VITE_BASE_URL);
     ws.onopen = () => {
       console.log("Websocket connected.")
       setIsConnected(true)
